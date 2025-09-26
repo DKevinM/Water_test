@@ -3,6 +3,13 @@
  * — Renders WSC hydrometric point(s) and WSA layers
  */
 
+if (typeof L === "undefined") {
+  console.error("Leaflet failed to load. Check that leaflet.js is loading (200 OK) BEFORE main.js.");
+  alert("Leaflet failed to load. Open DevTools → Network and confirm leaflet.js loads (status 200).");
+  throw new Error("Leaflet not loaded");
+}
+
+
 (async function () {
   const { CONFIG, fetchHydrometricRealtime, fetchArcGISLayerGeoJSON, tryOrNull } = window;
 
