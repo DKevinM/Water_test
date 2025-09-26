@@ -4,12 +4,10 @@
   <meta charset="utf-8" />
   <title>Regina Water — Flow & Quality (Open Data)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-pMpr2fMH1bMqK+YlF12T5p7rPjpoCis9Rs2jOUkyf6A="
-    crossorigin=""
-  />
+
+  <!-- Local Leaflet assets (no SRI, no CDN) -->
+  <link rel="stylesheet" href="lib/leaflet/leaflet.css" />
+
   <style>
     html, body { height: 100%; margin: 0; }
     #map { height: 100vh; }
@@ -29,9 +27,9 @@
 <body>
   <div id="map"></div>
 
-  <link rel="stylesheet" href="lib/leaflet/leaflet.css" />
-  <script src="lib/leaflet/leaflet.js"></script>
-  <script src="js/data.js"></script>
-  <script src="js/main.js"></script>
+  <!-- Scripts: Leaflet FIRST, then your app files -->
+  <script src="lib/leaflet/leaflet.js" defer></script>
+  <script src="js/data.js" defer></script>
+  <script src="js/main.js" defer></script>
 </body>
 </html>
