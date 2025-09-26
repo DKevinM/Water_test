@@ -4,31 +4,21 @@
   <meta charset="utf-8" />
   <title>Regina Water — Flow & Quality (Open Data)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- Local Leaflet assets (no SRI, no CDN) -->
-  <link rel="stylesheet" href="lib/leaflet/leaflet.css" />
-
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     html, body { height: 100%; margin: 0; }
     #map { height: 100vh; }
-    .legend {
-      background: #fff; padding: 8px 10px; border-radius: 6px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.15); line-height: 1.3;
-    }
-    .toolbar {
-      position: absolute; z-index: 999; top: 10px; left: 10px;
-      background: #fff; padding: 8px 10px; border-radius: 6px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.15);
-      font: 14px/1.2 system-ui, sans-serif;
-    }
-    .toolbar label { display: block; margin: 6px 0; }
+    .legend { background:#fff; padding:8px 10px; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,.15); line-height:1.3; }
+    .toolbar { position:absolute; z-index:999; top:10px; left:10px; background:#fff; padding:8px 10px; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,.15); font:14px/1.2 system-ui,sans-serif; }
+    .toolbar label { display:block; margin:6px 0; }
   </style>
 </head>
 <body>
   <div id="map"></div>
 
-  <!-- Scripts: Leaflet FIRST, then your app files -->
-  <script src="lib/leaflet/leaflet.js" defer></script>
+  <!-- Leaflet FIRST -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+  <!-- Your app files AFTER -->
   <script src="js/data.js" defer></script>
   <script src="js/main.js" defer></script>
 </body>
