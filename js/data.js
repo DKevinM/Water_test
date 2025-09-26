@@ -18,37 +18,85 @@ const OGC_BASE = "https://api.weather.gc.ca/collections";
 
 /** Fetch station metadata (geometry + props) for a station number */
 async function fetchHydrometricStationMeta(stationNumber) {
-  const url = new URL(`${OGC_BASE}/hydrometric-stations/items`);
-  url.searchParams.set("STATION_NUMBER", stationNumber);
-  url.searchParams.set("f", "json");
-  url.searchParams.set("limit", "1");
+  // Try CQL filter first (OGC API Features standard)
+  const tryCql = async () => {
+    const url = new URL(`${OGC_BASE}/hydrometric-stations/items`);
+    url.searchParams.set("filter", `STATION_NUMBER='${stationNumber}'`);
+    url.searchParams.set("filter-lang", "cql-text");
+    url.searchParams.set("f", "json");
+    url.searchParams.set("limit", "1");
+    const r = await fetch(url.toString(), { cache: "no-store" });
+    if (!r.ok) throw new Error(`stations meta ${stationNumber}: ${r.status}`);
+    return r.json();
+  };
 
-  const r = await fetch(url.toString(), { cache: "no-store" });
-  if (!r.ok) throw new Error(`stations meta ${stationNumber}: ${r.status}`);
-  const json = await r.json();
+  // Fallback: no filter (grab 1 feature that matches locally if server ignores filter)
+  const tryUnfiltered = async () => {
+    const url = new URL(`${OGC_BASE}/hydrometric-stations/items`);
+    url.searchParams.set("f", "json");
+    url.searchParams.set("limit", "1000");
+    const r = await fetch(url.toString(), { cache: "no-store" });
+    if (!r.ok) throw new Error(`stations meta (fallback) ${stationNumber}: ${r.status}`);
+    return r.json();
+  };
 
-  const f = (json.features || [])[0];
+  let json = await tryCql().catch(async e => {
+    logDebug(`⚠️ stations CQL failed: ${e.message || e}`);
+    return tryUnfiltered();
+  });
+
+  // find the station
+  const feats = json.features || [];
+  logDebug(`stations returned: ${feats.length}`);
+  const f = feats.find(x => (x.properties?.STATION_NUMBER || "").toString() === stationNumber) || feats[0];
+
   if (!f || !f.geometry || !Array.isArray(f.geometry.coordinates)) {
     throw new Error(`No geometry for station ${stationNumber}`);
   }
-  // GeoJSON: [lon, lat]
   const [lon, lat] = f.geometry.coordinates;
   return { lat, lon, props: f.properties || {} };
 }
 
 /** Fetch latest realtime values per parameter for a station */
 async function fetchHydrometricRealtimeLatest(stationNumber) {
-  const url = new URL(`${OGC_BASE}/hydrometric-realtime/items`);
-  url.searchParams.set("STATION_NUMBER", stationNumber);
-  url.searchParams.set("f", "json");
-  url.searchParams.set("limit", "5000");
+  // CQL filter first
+  const tryCql = async () => {
+    const url = new URL(`${OGC_BASE}/hydrometric-realtime/items`);
+    url.searchParams.set("filter", `STATION_NUMBER='${stationNumber}'`);
+    url.searchParams.set("filter-lang", "cql-text");
+    url.searchParams.set("f", "json");
+    url.searchParams.set("limit", "5000");
+    const r = await fetch(url.toString(), { cache: "no-store" });
+    if (!r.ok) throw new Error(`realtime ${stationNumber}: ${r.status}`);
+    return r.json();
+  };
 
-  const r = await fetch(url.toString(), { cache: "no-store" });
-  if (!r.ok) throw new Error(`realtime ${stationNumber}: ${r.status}`);
-  const json = await r.json();
+  // Fallback: unfiltered then local filter
+  const tryUnfiltered = async () => {
+    const url = new URL(`${OGC_BASE}/hydrometric-realtime/items`);
+    url.searchParams.set("f", "json");
+    url.searchParams.set("limit", "5000");
+    const r = await fetch(url.toString(), { cache: "no-store" });
+    if (!r.ok) throw new Error(`realtime (fallback) ${stationNumber}: ${r.status}`);
+    return r.json();
+  };
 
-  const rows = (json.features || []).map(f => f.properties || {});
-  // keep most recent per PARAMETER
+  let json = await tryCql().catch(async e => {
+    logDebug(`⚠️ realtime CQL failed: ${e.message || e}`);
+    return tryUnfiltered();
+  });
+
+  // rows, optionally filtered locally if server ignored filter
+  let rows = (json.features || []).map(f => f.properties || {});
+  if (rows.length && !rows[0].STATION_NUMBER) {
+    // if station number isn’t present (unlikely), keep all
+    logDebug(`realtime returned: ${rows.length} records`);
+  } else {
+    rows = rows.filter(r => (r.STATION_NUMBER || "").toString() === stationNumber);
+    logDebug(`realtime returned: ${rows.length} records for ${stationNumber}`);
+  }
+
+  // keep most recent per parameter
   const byParam = new Map();
   for (const row of rows) {
     const key = row.PARAMETER;
@@ -57,6 +105,7 @@ async function fetchHydrometricRealtimeLatest(stationNumber) {
   }
   return Array.from(byParam.values());
 }
+
 
 /** ArcGIS FeatureServer → GeoJSON clipped by bbox */
 async function fetchArcGISLayerGeoJSON(featureServerUrl, bbox) {
