@@ -1,85 +1,98 @@
 /* data.js
- * — Endpoints + fetch helpers
- * — Edit CONFIG only; main.js uses these
+ * Config + fetch helpers for ECCC OGC + ArcGIS
  */
 
-// 1) CONFIG — tweak bbox and which layers to load
 const CONFIG = {
-  // Rough bbox covering Regina / Lower Qu’Appelle (xmin, ymin, xmax, ymax)
+  // xmin, ymin, xmax, ymax (WGS84)
   bbox: [-105.20, 50.20, -104.20, 50.80],
+  // WSC stations to plot; start with Wascana Creek at Regina + another nearby
+  wscStations: ["05JF003", "05JF008"],
 
-  // Water Survey of Canada station(s) to show (Wascana Creek at Regina)
-  wscStations: ["05JF003"],
-
-  // ArcGIS FeatureServer layers from WSA GeoHub (paste full layer URLs)
-  // How to find: WSA dataset page → Data → API → “View Data Source” (FeatureServer)
-  // Example placeholders — replace with actual FeatureServer layer URLs you want:
+  // Optional: add WSA FeatureServer layer URLs here later
   wsaLayers: [
-    // Primary Water Quality Monitoring Stations (FeatureServer layer URL)
-    // "https://<host>/arcgis/rest/services/.../FeatureServer/0",
-    // Hydrometric Gauging Stations
-    // "https://<host>/arcgis/rest/services/.../FeatureServer/0",
-    // Dams
-    // "https://<host>/arcgis/rest/services/.../FeatureServer/0",
-    // Reservoirs
-    // "https://<host>/arcgis/rest/services/.../FeatureServer/0",
-    // Floodway polygons
-    // "https://<host>/arcgis/rest/services/.../FeatureServer/0",
+    // e.g. "https://<host>/arcgis/rest/services/.../FeatureServer/0"
   ],
 };
 
-// 2) WATER SURVEY OF CANADA (ECCC OGC API) — real-time hydrometric items
-async function fetchHydrometricRealtime(stationNumber) {
-  const base = "https://api.weather.gc.ca/collections/hydrometric-realtime/items";
-  const url = new URL(base);
+const OGC_BASE = "https://api.weather.gc.ca/collections";
+
+/** Fetch station metadata (geometry + props) for a station number */
+async function fetchHydrometricStationMeta(stationNumber) {
+  const url = new URL(`${OGC_BASE}/hydrometric-stations/items`);
   url.searchParams.set("STATION_NUMBER", stationNumber);
-  url.searchParams.set("limit", "5000");
   url.searchParams.set("f", "json");
+  url.searchParams.set("limit", "1");
 
-  const resp = await fetch(url.toString(), { cache: "no-store" });
-  if (!resp.ok) throw new Error(`WSC fetch failed: ${resp.status}`);
-  const json = await resp.json();
+  const r = await fetch(url.toString(), { cache: "no-store" });
+  if (!r.ok) throw new Error(`stations meta ${stationNumber}: ${r.status}`);
+  const json = await r.json();
 
-  // Flatten features → latest per-parameter
-  const rows = (json.features || []).map(f => f.properties || {});
-  // Keep the most recent value per parameter
-  const byParam = new Map();
-  for (const r of rows) {
-    const key = r.PARAMETER;
-    if (!byParam.has(key)) { byParam.set(key, r); continue; }
-    const prev = byParam.get(key);
-    if (new Date(r.DATE) > new Date(prev.DATE)) byParam.set(key, r);
+  const f = (json.features || [])[0];
+  if (!f || !f.geometry || !Array.isArray(f.geometry.coordinates)) {
+    throw new Error(`No geometry for station ${stationNumber}`);
   }
-  return {
-    station: stationNumber,
-    latest: [...byParam.values()],
-  };
+  // GeoJSON: [lon, lat]
+  const [lon, lat] = f.geometry.coordinates;
+  return { lat, lon, props: f.properties || {} };
 }
 
-// 3) ArcGIS FeatureServer → GeoJSON clipped by bbox (server-side)
+/** Fetch latest realtime values per parameter for a station */
+async function fetchHydrometricRealtimeLatest(stationNumber) {
+  const url = new URL(`${OGC_BASE}/hydrometric-realtime/items`);
+  url.searchParams.set("STATION_NUMBER", stationNumber);
+  url.searchParams.set("f", "json");
+  url.searchParams.set("limit", "5000");
+
+  const r = await fetch(url.toString(), { cache: "no-store" });
+  if (!r.ok) throw new Error(`realtime ${stationNumber}: ${r.status}`);
+  const json = await r.json();
+
+  const rows = (json.features || []).map(f => f.properties || {});
+  // keep most recent per PARAMETER
+  const byParam = new Map();
+  for (const row of rows) {
+    const key = row.PARAMETER;
+    const prev = byParam.get(key);
+    if (!prev || new Date(row.DATE) > new Date(prev.DATE)) byParam.set(key, row);
+  }
+  return Array.from(byParam.values());
+}
+
+/** ArcGIS FeatureServer → GeoJSON clipped by bbox */
 async function fetchArcGISLayerGeoJSON(featureServerUrl, bbox) {
   const url = new URL(`${featureServerUrl.replace(/\/+$/, "")}/query`);
   url.searchParams.set("where", "1=1");
   url.searchParams.set("outFields", "*");
-  url.searchParams.set("geometry", bbox.join(",")); // xmin,ymin,xmax,ymax
+  url.searchParams.set("geometry", bbox.join(","));
   url.searchParams.set("geometryType", "esriGeometryEnvelope");
   url.searchParams.set("inSR", "4326");
   url.searchParams.set("spatialRel", "esriSpatialRelIntersects");
   url.searchParams.set("outSR", "4326");
   url.searchParams.set("f", "geojson");
 
-  const resp = await fetch(url.toString(), { cache: "no-store" });
-  if (!resp.ok) throw new Error(`ArcGIS fetch failed: ${resp.status}`);
-  return resp.json(); // GeoJSON FeatureCollection
+  const r = await fetch(url.toString(), { cache: "no-store" });
+  if (!r.ok) throw new Error(`ArcGIS layer: ${r.status}`);
+  return r.json();
 }
 
-// 4) Tiny utility: guard async errors without crashing the app
-async function tryOrNull(promise) {
-  try { return await promise; } catch(e) { console.warn(e); return null; }
+function logDebug(msg) {
+  const el = document.getElementById("debug");
+  if (el) el.textContent += `${msg}\n`;
+  console.log(msg);
 }
 
-// Exports (global)
+async function tryOrNull(promise, label = "") {
+  try {
+    return await promise;
+  } catch (e) {
+    logDebug(`⚠️ ${label} ${e.message || e}`);
+    return null;
+  }
+}
+
 window.CONFIG = CONFIG;
-window.fetchHydrometricRealtime = fetchHydrometricRealtime;
+window.fetchHydrometricStationMeta = fetchHydrometricStationMeta;
+window.fetchHydrometricRealtimeLatest = fetchHydrometricRealtimeLatest;
 window.fetchArcGISLayerGeoJSON = fetchArcGISLayerGeoJSON;
 window.tryOrNull = tryOrNull;
+window.logDebug = logDebug;
